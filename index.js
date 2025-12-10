@@ -2,6 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const admin = require("firebase-admin");
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const port = process.env.PORT || 5000;
 
@@ -202,6 +203,95 @@ async function run() {
       await sellerRequestsCollection.deleteOne({ email });
 
       res.send(result);
+    });
+
+    app.post('/create-checkout-session', async (req, res) => {
+      const paymentInfo = req.body
+      console.log(paymentInfo)
+      const payment_total = Number(paymentInfo?.membershipFee) * 100;
+      const session = await stripe.checkout.sessions.create({
+        line_items: [
+          {
+            price_data: {
+              currency: 'usd',
+              product_data: {
+                name: paymentInfo?.name,
+                description: paymentInfo?.description,
+                images: [paymentInfo.bannerImage],
+              },
+              unit_amount: payment_total,
+            },
+            quantity: paymentInfo?.quantity,
+          },
+        ],
+        customer_email: paymentInfo?.member?.email,
+        mode: 'payment',
+        metadata: {
+          clubId: paymentInfo?.clubId,
+          member: paymentInfo?.member.email,
+        },
+        success_url: `${process.env.CLIENT_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.CLIENT_DOMAIN}/clubs/${paymentInfo?.clubId}`,
+      })
+      res.send({ url: session.url })
+    })
+
+    // payment success
+     app.post('/payment-success', async (req, res) => {
+      const { sessionId } = req.body
+      const session = await stripe.checkout.sessions.retrieve(sessionId)
+      const club = await clubsCollection.findOne({
+        _id: new ObjectId(session.metadata.clubId),
+      })
+      const memberShip = await membershipsCollection.findOne({
+        paymentId: session.payment_intent,
+      })
+
+      if (session.status === 'complete' && club && !memberShip) {
+        // save order data in db
+        const memberInfo = {
+          clubId: session.metadata.clubId,
+          transactionId: session.payment_intent,
+          memberEmail: session.metadata.member,
+          status: 'pending',
+          joinedAt: new Date().toISOString(),
+        
+         
+          // membershipFee: session.amount_total / 100,
+          // bannerImage: club?.bannerImage,
+        }
+        const result = await membershipsCollection.insertOne(memberInfo)
+         await paymentsCollection.insertOne({
+          paymentId: session.payment_intent,
+          clubId: session.metadata.clubId,  
+          memberEmail: session.metadata.member,
+          type: 'membership',
+          amount: session.amount_total / 100,
+          status: session.payment_status,
+          createdAt: new Date().toISOString(),
+        })
+
+        return res.send({
+          paymentId: session.payment_intent,
+          memberId: result.insertedId,
+        })
+      }
+      res.send(
+        res.send({
+          paymentIdId: session.payment_intent,
+          memberId: memberShip._id,
+        })
+      )
+    })
+
+    // isMember serarch by memberEmail and clubId
+    app.get("/is-member", verifyJWT,  async (req, res) => {
+      const memberEmail = req.query.memberEmail;
+      const clubId = req.query.clubId;  
+      const query = { memberEmail, clubId };
+      const result = await membershipsCollection.findOne(query);
+      // res.send({ isMember: result.status, memberData: result });
+      res.send(result.status)
     });
 
     await client.db("admin").command({ ping: 1 });
