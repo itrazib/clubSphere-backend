@@ -61,38 +61,46 @@ async function run() {
 
     // role middlewares
     const verifyADMIN = async (req, res, next) => {
-      const email = req.tokenEmail
-      const user = await usersCollection.findOne({ email })
-      if (user?.role !== 'admin')
+      const email = req.tokenEmail;
+      const user = await usersCollection.findOne({ email });
+      if (user?.role !== "admin")
         return res
           .status(403)
-          .send({ message: 'Admin only Actions!', role: user?.role })
+          .send({ message: "Admin only Actions!", role: user?.role });
 
-      next()
-    }
+      next();
+    };
 
     const verifyClubManager = async (req, res, next) => {
-      const email = req.tokenEmail
-      const user = await usersCollection.findOne({ email })
-      if (user?.role !== 'clubManager')
+      const email = req.tokenEmail;
+      const user = await usersCollection.findOne({ email });
+      if (user?.role !== "clubManager")
         return res
           .status(403)
-          .send({ message: 'Seller only Actions!', role: user?.role })
+          .send({ message: "Seller only Actions!", role: user?.role });
 
-      next()
-    }
-
+      next();
+    };
 
     // create clubs
     app.post("/clubs", verifyJWT, verifyClubManager, async (req, res) => {
       const clubData = req.body;
       // clubData.managerEmail = req.tokenEmail;
-     
+
       clubData.status = "pending";
-       clubData.createdAt = new Date().toISOString();
+      clubData.createdAt = new Date().toISOString();
       clubData.updateAt = new Date().toISOString();
-      
+
       const result = await clubsCollection.insertOne(clubData);
+      res.send(result);
+    });
+
+    // Event creation
+    app.post("/events", verifyJWT, verifyClubManager, async (req, res) => {
+      const eventData = req.body;
+      eventData.createdAt = new Date().toISOString();
+      eventData.updatedAt = new Date().toISOString();
+      const result = await eventsCollection.insertOne(eventData);
       res.send(result);
     });
 
@@ -102,28 +110,44 @@ async function run() {
       res.send(result);
     });
 
+    // get all approved clubs
+    app.get("/clubs/approved", async (req, res) => {
+      const result = await clubsCollection
+        .find({ status: "approved" })
+        .toArray();
+      res.send(result);
+    });
+
+    // get single club
+    app.get("/clubs/:id", async (req, res) => {
+      const id = req.params.id;     
+      const query = { _id: new ObjectId(id) };
+      const result = await clubsCollection.findOne(query);
+      res.send(result);
+    });
+
     // clubs update data
-   app.patch("/clubs/:id", verifyJWT, verifyClubManager, async (req, res) => {
-  const id = req.params.id;
-  const updateData = req.body;
+    app.patch("/clubs/:id", verifyJWT, async (req, res) => {
+      const id = req.params.id;
+      const updateData = req.body;
 
-  // ❗ IMPORTANT: Prevent _id from being updated
-  if (updateData._id) {
-    delete updateData._id;
-  }
+      // ❗ IMPORTANT: Prevent _id from being updated
+      if (updateData._id) {
+        delete updateData._id;
+      }
 
-  updateData.updatedAt = new Date().toISOString();
+      const query = { _id: new ObjectId(id) };
 
-  const query = { _id: new ObjectId(id) };
+      const updateFields = {
+        $set: {
+          ...updateData,
+          updateAt: new Date().toISOString(),
+        },
+      };
 
-  const updateFields = {
-    $set: updateData,
-  };
-
-  const result = await clubsCollection.updateOne(query, updateFields);
-  res.send(result);
-});
-
+      const result = await clubsCollection.updateOne(query, updateFields);
+      res.send(result);
+    });
 
     app.post("/user", async (req, res) => {
       const userData = req.body;
@@ -160,7 +184,7 @@ async function run() {
     });
 
     // get all users for admin
-    app.get("/users", verifyJWT,  async (req, res) => {
+    app.get("/users", verifyJWT, async (req, res) => {
       const adminEmail = req.tokenEmail;
       const result = await usersCollection
         .find({ email: { $ne: adminEmail } })
@@ -169,16 +193,16 @@ async function run() {
     });
 
     // update a user's role
-    app.patch('/update-role', verifyJWT,  async (req, res) => {
-      const { email, role } = req.body
+    app.patch("/update-role", verifyJWT, async (req, res) => {
+      const { email, role } = req.body;
       const result = await usersCollection.updateOne(
         { email },
         { $set: { role } }
-      )
-      await sellerRequestsCollection.deleteOne({ email })
+      );
+      await sellerRequestsCollection.deleteOne({ email });
 
-      res.send(result)
-    })
+      res.send(result);
+    });
 
     await client.db("admin").command({ ping: 1 });
     console.log(
