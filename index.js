@@ -53,6 +53,11 @@ async function run() {
 
     const db = client.db("ClubSphere");
     const usersCollection = db.collection("users");
+    const clubsCollection = db.collection("clubs");
+    const membershipsCollection = db.collection("memberships");
+    const eventsCollection = db.collection("events");
+    const eventRegistrationsCollection = db.collection("event_registrations");
+    const paymentsCollection = db.collection("payments");
 
     // role middlewares
     const verifyADMIN = async (req, res, next) => {
@@ -65,6 +70,60 @@ async function run() {
 
       next()
     }
+
+    const verifyClubManager = async (req, res, next) => {
+      const email = req.tokenEmail
+      const user = await usersCollection.findOne({ email })
+      if (user?.role !== 'clubManager')
+        return res
+          .status(403)
+          .send({ message: 'Seller only Actions!', role: user?.role })
+
+      next()
+    }
+
+
+    // create clubs
+    app.post("/clubs", verifyJWT, verifyClubManager, async (req, res) => {
+      const clubData = req.body;
+      // clubData.managerEmail = req.tokenEmail;
+     
+      clubData.status = "pending";
+       clubData.createdAt = new Date().toISOString();
+      clubData.updateAt = new Date().toISOString();
+      
+      const result = await clubsCollection.insertOne(clubData);
+      res.send(result);
+    });
+
+    // get all clubs
+    app.get("/clubs", async (req, res) => {
+      const result = await clubsCollection.find().toArray();
+      res.send(result);
+    });
+
+    // clubs update data
+   app.patch("/clubs/:id", verifyJWT, verifyClubManager, async (req, res) => {
+  const id = req.params.id;
+  const updateData = req.body;
+
+  // ❗ IMPORTANT: Prevent _id from being updated
+  if (updateData._id) {
+    delete updateData._id;
+  }
+
+  updateData.updatedAt = new Date().toISOString();
+
+  const query = { _id: new ObjectId(id) };
+
+  const updateFields = {
+    $set: updateData,
+  };
+
+  const result = await clubsCollection.updateOne(query, updateFields);
+  res.send(result);
+});
+
 
     app.post("/user", async (req, res) => {
       const userData = req.body;
@@ -110,7 +169,7 @@ async function run() {
     });
 
     // update a user's role
-    app.patch('/update-role', verifyJWT, verifyADMIN, async (req, res) => {
+    app.patch('/update-role', verifyJWT,  async (req, res) => {
       const { email, role } = req.body
       const result = await usersCollection.updateOne(
         { email },
