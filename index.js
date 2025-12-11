@@ -96,14 +96,52 @@ async function run() {
       res.send(result);
     });
 
-    // Event creation
-    app.post("/events", verifyJWT, verifyClubManager, async (req, res) => {
+// create events by clubId
+    app.post("/events/:clubId", verifyJWT, verifyClubManager, async (req, res) => {
+      const clubId = req.params.clubId;
       const eventData = req.body;
+      eventData.clubId = clubId;
       eventData.createdAt = new Date().toISOString();
-      eventData.updatedAt = new Date().toISOString();
+      eventData.updateAt = new Date().toISOString();  
       const result = await eventsCollection.insertOne(eventData);
       res.send(result);
     });
+  
+    // get events by clubId
+    app.get("/events/:clubId", async (req, res) => {
+      const clubId = req.params.clubId;
+      const result = await eventsCollection.find({ clubId }).toArray();
+      res.send(result);
+    });
+
+    // update event by eventId
+    app.patch("/events/:eventId", verifyJWT, verifyClubManager, async (req, res) => {
+      const eventId = req.params.eventId;
+      const updateData = req.body;
+      // ❗ IMPORTANT: Prevent _id from being updated
+      if (updateData._id) {
+        delete updateData._id;
+      } 
+      const query = { _id: new ObjectId(eventId) };
+
+      const updateFields = {  
+        $set: {
+          ...updateData,
+          updateAt: new Date().toISOString(),
+        },
+      };
+      const result = await eventsCollection.updateOne(query, updateFields);
+      res.send(result);
+    });
+
+    // delete event by eventId
+    app.delete("/events/:eventId", verifyJWT, verifyClubManager, async (req, res) => {
+      const eventId = req.params.eventId;     
+      const query = { _id: new ObjectId(eventId) };
+      const result = await eventsCollection.deleteOne(query);
+      res.send(result);
+    });
+   
 
     // get all clubs
     app.get("/clubs", async (req, res) => {
@@ -116,6 +154,37 @@ async function run() {
       const result = await clubsCollection
         .find({ status: "approved" })
         .toArray();
+      res.send(result);
+    });
+
+    // get all members for each club
+    app.get("/memberships/:clubId", verifyJWT, verifyClubManager, async (req, res) => {
+      const clubId = req.params.clubId;
+      const result = await membershipsCollection
+        .find({ clubId })
+        .toArray();
+      res.send(result);
+    });
+
+
+    // memeberships status update
+    app.patch("/memberships/:id/expire", verifyJWT, verifyClubManager, async (req, res) => {
+      const id = req.params.id;
+      const { status } = req.body;
+      const query = { _id: new ObjectId(id) };
+
+      const updateFields = {  
+        $set: {
+          status,
+          updatedAt: new Date().toISOString(),
+        },
+      };
+
+      // for expire then membership data to deleteNone collection
+      
+      const result = await membershipsCollection.updateOne(query, updateFields);
+
+      await membershipsCollection.deleteOne(query);
       res.send(result);
     });
 
@@ -250,6 +319,7 @@ async function run() {
       if (session.status === 'complete' && club && !memberShip) {
         // save order data in db
         const memberInfo = {
+          memberName: session.customer_details.name,
           clubId: session.metadata.clubId,
           transactionId: session.payment_intent,
           memberEmail: session.metadata.member,
@@ -292,6 +362,13 @@ async function run() {
       const result = await membershipsCollection.findOne(query);
       // res.send({ isMember: result.status, memberData: result });
       res.send(result.status)
+    });
+
+    // memberships count by clubId
+    app.get("/memberships/count/:clubId", async (req, res) => {
+      const clubId = req.params.clubId; 
+      const count = await membershipsCollection.countDocuments({ clubId });
+      res.send({ count });
     });
 
     await client.db("admin").command({ ping: 1 });
