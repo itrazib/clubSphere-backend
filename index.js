@@ -83,6 +83,25 @@ async function run() {
       next();
     };
 
+    // event Registration
+    app.post("/events/join", async(req, res) => {
+      const userData = req.body;
+      userData.status = "registered";
+      userData.registerAt = new Date().toISOString()
+      console.log(userData)
+      const result = await eventRegistrationsCollection.insertOne(userData)
+      res.send(result)
+    })
+
+        app.get("/events/isJoined", verifyJWT, async(req, res) => {
+      const eventId = req.query.eventId;
+      const userEmail = req.query.userEmail;
+      const query = {eventId, userEmail}
+      const result = await eventRegistrationsCollection.findOne(query)
+      
+      res.send(result.status)
+    })
+
     // create clubs
     app.post("/clubs", verifyJWT, verifyClubManager, async (req, res) => {
       const clubData = req.body;
@@ -96,10 +115,15 @@ async function run() {
       res.send(result);
     });
 
+    // member search by member email
+    // app.get("")
+
 // create events by clubId
     app.post("/events/:clubId", verifyJWT, verifyClubManager, async (req, res) => {
       const clubId = req.params.clubId;
+      const club = await clubsCollection.findOne({_id: new ObjectId(clubId)})
       const eventData = req.body;
+      eventData.clubName = club.name;
       eventData.clubId = clubId;
       eventData.createdAt = new Date().toISOString();
       eventData.updateAt = new Date().toISOString();  
@@ -111,6 +135,20 @@ async function run() {
     app.get("/events/:clubId", async (req, res) => {
       const clubId = req.params.clubId;
       const result = await eventsCollection.find({ clubId }).toArray();
+      res.send(result);
+    });
+
+    // event details page api
+    app.get("/eventDetails/:id", async(req, res) => {
+       const id = req.params.id;     
+      const query = { _id: new ObjectId(id) };
+      const result = await eventsCollection.findOne(query);
+      res.send(result);
+    })
+
+    // all events
+    app.get("/events", async (req, res) => {
+      const result = await eventsCollection.find().toArray();
       res.send(result);
     });
 
@@ -133,6 +171,8 @@ async function run() {
       const result = await eventsCollection.updateOne(query, updateFields);
       res.send(result);
     });
+
+    // search event by 
 
     // delete event by eventId
     app.delete("/events/:eventId", verifyJWT, verifyClubManager, async (req, res) => {
@@ -323,7 +363,7 @@ async function run() {
           clubId: session.metadata.clubId,
           transactionId: session.payment_intent,
           memberEmail: session.metadata.member,
-          status: 'pending',
+          status: 'active',
           joinedAt: new Date().toISOString(),
         
          
@@ -363,6 +403,8 @@ async function run() {
       // res.send({ isMember: result.status, memberData: result });
       res.send(result.status)
     });
+
+
 
     // memberships count by clubId
     app.get("/memberships/count/:clubId", async (req, res) => {
