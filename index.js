@@ -154,10 +154,51 @@ async function run() {
     );
 
     // get events by clubId
-    app.get("/events/:clubId", async (req, res) => {
-      const clubId = req.params.clubId;
-      const result = await eventsCollection.find({ clubId }).toArray();
-      res.send(result);
+    // app.get("/events/:clubId", async (req, res) => {
+    //   const clubId = req.params.clubId;
+    //   const result = await eventsCollection.find({ clubId }).toArray();
+    //   res.send(result);
+    // });
+
+    app.get("/club-page/:id", async (req, res) => {
+      try {
+        const clubId = new ObjectId(req.params.id); // ✅ FIXED
+        const userEmail = req.query.email;
+
+        // 1. Club Details
+        const club = await clubsCollection.findOne({ _id: clubId });
+
+        // 2. Member Count
+        const memberCount = await membershipsCollection.countDocuments({
+          clubId: req.params.id, // clubId stored as string in DB
+        });
+
+        // 3. Membership Status
+        const membership = await membershipsCollection.findOne({
+          clubId: req.params.id,
+          memberEmail: userEmail,
+        });
+
+        const isMember = membership?.status || "none";
+
+        // 4. Events (fetch only if active member)
+        let events = [];
+        if (isMember === "active") {
+          events = await eventsCollection
+            .find({ clubId: req.params.id })
+            .toArray();
+        }
+
+        res.status(200).json({
+          club,
+          memberCount,
+          isMember,
+          events,
+        });
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Server Error" });
+      }
     });
 
     // event details page api
@@ -172,6 +213,24 @@ async function run() {
     app.get("/events", async (req, res) => {
       const result = await eventsCollection.find().toArray();
       res.send(result);
+    });
+
+    app.get("/events/upcoming", async (req, res) => {
+      try {
+        const today = new Date().toISOString(); // current time
+
+        const upcomingEvents = await eventsCollection
+          .find({
+            date: { $gte: today },
+          })
+          .sort({ date: 1 }) // oldest upcoming first
+          .toArray();
+
+        res.status(200).send(upcomingEvents);
+      } catch (error) {
+        console.error("Error fetching upcoming events:", error);
+        res.status(500).send({ error: "Server Error" });
+      }
     });
 
     // update event by eventId
@@ -500,7 +559,7 @@ async function run() {
     });
 
     // get all approved clubs
-    app.get("/clubs/approved", verifyJWT, async (req, res) => {
+    app.get("/clubs/approved", async (req, res) => {
       const result = await clubsCollection
         .find({ status: "approved" })
         .toArray();
@@ -549,12 +608,12 @@ async function run() {
     );
 
     // get single club
-    app.get("/clubs/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await clubsCollection.findOne(query);
-      res.send(result);
-    });
+    // app.get("/clubs/:id", async (req, res) => {
+    //   const id = req.params.id;
+    //   const query = { _id: new ObjectId(id) };
+    //   const result = await clubsCollection.findOne(query);
+    //   res.send(result);
+    // });
 
     // clubs update data
     app.patch("/clubs/:id", verifyJWT, async (req, res) => {
@@ -731,11 +790,11 @@ async function run() {
     });
 
     // memberships count by clubId
-    app.get("/memberships/count/:clubId", async (req, res) => {
-      const clubId = req.params.clubId;
-      const count = await membershipsCollection.countDocuments({ clubId });
-      res.send({ count });
-    });
+    // app.get("/memberships/count/:clubId", async (req, res) => {
+    //   const clubId = req.params.clubId;
+    //   const count = await membershipsCollection.countDocuments({ clubId });
+    //   res.send({ count });
+    // });
 
     await client.db("admin").command({ ping: 1 });
     console.log(
