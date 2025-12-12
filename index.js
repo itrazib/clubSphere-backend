@@ -2,7 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const admin = require("firebase-admin");
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const port = process.env.PORT || 5000;
 
@@ -84,23 +84,38 @@ async function run() {
     };
 
     // event Registration
-    app.post("/events/join", async(req, res) => {
+    app.post("/events/join", async (req, res) => {
       const userData = req.body;
       userData.status = "registered";
-      userData.registerAt = new Date().toISOString()
-      console.log(userData)
-      const result = await eventRegistrationsCollection.insertOne(userData)
-      res.send(result)
-    })
+      userData.registerAt = new Date().toISOString();
+      console.log(userData);
+      const result = await eventRegistrationsCollection.insertOne(userData);
+      res.send(result);
+    });
 
-        app.get("/events/isJoined", verifyJWT, async(req, res) => {
+    app.get("/events/isJoined", verifyJWT, async (req, res) => {
       const eventId = req.query.eventId;
       const userEmail = req.query.userEmail;
-      const query = {eventId, userEmail}
-      const result = await eventRegistrationsCollection.findOne(query)
-      
-      res.send(result.status)
-    })
+      const query = { eventId, userEmail };
+      const result = await eventRegistrationsCollection.findOne(query);
+
+      res.send(result.status);
+    });
+
+    // event Register by eventId
+
+    app.get(
+      "/eventRegister/:eventId",
+      verifyJWT,
+      verifyClubManager,
+      async (req, res) => {
+        const eventId = req.params.eventId;
+        const result = await eventRegistrationsCollection
+          .find({ eventId })
+          .toArray();
+        res.send(result);
+      }
+    );
 
     // create clubs
     app.post("/clubs", verifyJWT, verifyClubManager, async (req, res) => {
@@ -118,19 +133,26 @@ async function run() {
     // member search by member email
     // app.get("")
 
-// create events by clubId
-    app.post("/events/:clubId", verifyJWT, verifyClubManager, async (req, res) => {
-      const clubId = req.params.clubId;
-      const club = await clubsCollection.findOne({_id: new ObjectId(clubId)})
-      const eventData = req.body;
-      eventData.clubName = club.name;
-      eventData.clubId = clubId;
-      eventData.createdAt = new Date().toISOString();
-      eventData.updateAt = new Date().toISOString();  
-      const result = await eventsCollection.insertOne(eventData);
-      res.send(result);
-    });
-  
+    // create events by clubId
+    app.post(
+      "/events/:clubId",
+      verifyJWT,
+      verifyClubManager,
+      async (req, res) => {
+        const clubId = req.params.clubId;
+        const club = await clubsCollection.findOne({
+          _id: new ObjectId(clubId),
+        });
+        const eventData = req.body;
+        eventData.clubName = club.name;
+        eventData.clubId = clubId;
+        eventData.createdAt = new Date().toISOString();
+        eventData.updateAt = new Date().toISOString();
+        const result = await eventsCollection.insertOne(eventData);
+        res.send(result);
+      }
+    );
+
     // get events by clubId
     app.get("/events/:clubId", async (req, res) => {
       const clubId = req.params.clubId;
@@ -139,12 +161,12 @@ async function run() {
     });
 
     // event details page api
-    app.get("/eventDetails/:id", async(req, res) => {
-       const id = req.params.id;     
+    app.get("/eventDetails/:id", async (req, res) => {
+      const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await eventsCollection.findOne(query);
       res.send(result);
-    })
+    });
 
     // all events
     app.get("/events", async (req, res) => {
@@ -153,44 +175,179 @@ async function run() {
     });
 
     // update event by eventId
-    app.patch("/events/:eventId", verifyJWT, verifyClubManager, async (req, res) => {
-      const eventId = req.params.eventId;
-      const updateData = req.body;
-      // ❗ IMPORTANT: Prevent _id from being updated
-      if (updateData._id) {
-        delete updateData._id;
-      } 
-      const query = { _id: new ObjectId(eventId) };
+    app.patch(
+      "/events/:eventId",
+      verifyJWT,
+      verifyClubManager,
+      async (req, res) => {
+        const eventId = req.params.eventId;
+        const updateData = req.body;
+        // ❗ IMPORTANT: Prevent _id from being updated
+        if (updateData._id) {
+          delete updateData._id;
+        }
+        const query = { _id: new ObjectId(eventId) };
 
-      const updateFields = {  
-        $set: {
-          ...updateData,
-          updateAt: new Date().toISOString(),
-        },
-      };
-      const result = await eventsCollection.updateOne(query, updateFields);
-      res.send(result);
+        const updateFields = {
+          $set: {
+            ...updateData,
+            updateAt: new Date().toISOString(),
+          },
+        };
+        const result = await eventsCollection.updateOne(query, updateFields);
+        res.send(result);
+      }
+    );
+
+    // admin payments part
+    app.get("/admin/payments", verifyJWT, async(req, res) => {
+      const result = await paymentsCollection.find().toArray();
+      res.send(result)
+    })
+
+    // admin stats
+    app.get("/admin/stats", verifyJWT, verifyADMIN, async (req, res) => {
+      const adminEmail = req.tokenEmail;
+
+      // await usersCollection.find({ email: { $ne: adminEmail } }).toArray();
+      try {
+        const totalUsers = await usersCollection.countDocuments({
+          email: { $ne: adminEmail },
+        });
+        const totalClubsPending = await clubsCollection.countDocuments({
+          status: "pending",
+        });
+        const totalClubsApproved = await clubsCollection.countDocuments({
+          status: "approved",
+        });
+        const totalClubsRejected = await clubsCollection.countDocuments({
+          status: "rejected",
+        });
+
+        const totalMemberships = await membershipsCollection.countDocuments();
+        const totalEvents = await eventsCollection.countDocuments();
+
+        const payments = await paymentsCollection
+          .aggregate([{ $group: { _id: null, total: { $sum: "$amount" } } }])
+          .toArray();
+
+        const totalPayments = payments[0]?.total || 0;
+
+        res.send({
+          totalUsers,
+          totalClubs: {
+            pending: totalClubsPending,
+            approved: totalClubsApproved,
+            rejected: totalClubsRejected,
+          },
+          totalMemberships,
+          totalEvents,
+          totalPayments,
+        });
+      } catch (error) {
+        res.status(500).send({ message: "Server Error" });
+      }
     });
 
-    // search event by 
+    // members and event Count
+
+    app.get("/clubs/:id/stats", async (req, res) => {
+      const clubId = req.params.id;
+
+      try {
+        // Count members
+        const membersCount = await membershipsCollection.countDocuments({
+          clubId,
+          status: "active",
+        });
+
+        // Count events created by this club
+        const eventsCount = await eventsCollection.countDocuments({ clubId });
+
+        res.send({
+          membersCount,
+          eventsCount,
+        });
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
+
+    // Manager Overview (Simple app.get)
+    app.get(
+      "/manager/overview",
+      verifyJWT,
+      verifyClubManager,
+      async (req, res) => {
+        try {
+          const managerEmail = req.tokenEmail;
+
+          // Total Clubs managed by this manager
+          const clubsManaged = await clubsCollection.countDocuments({
+            managerEmail,
+          });
+
+          // Total Members from all clubs he manages
+          const clubs = await clubsCollection
+            .find({ managerEmail })
+            .project({ _id: 1 })
+            .toArray();
+
+          const clubIds = clubs.map((c) => c._id.toString());
+
+          const totalMembers = await membershipsCollection.countDocuments({
+            clubId: { $in: clubIds },
+          });
+
+          // Total Events created by this manager
+          const eventsCreated = await eventsCollection.countDocuments({
+            clubId: { $in: clubIds },
+          });
+
+          // Total Payments (membership fees from his clubs)
+          const payments = await paymentsCollection
+            .aggregate([
+              { $match: { clubId: { $in: clubIds } } },
+              { $group: { _id: null, total: { $sum: "$amount" } } },
+            ])
+            .toArray();
+
+          const totalPayments = payments[0]?.total || 0;
+
+          res.send({
+            clubsManaged,
+            totalMembers,
+            eventsCreated,
+            totalPayments,
+          });
+        } catch (error) {
+          console.log(error);
+          res.status(500).send({ message: "Server Error" });
+        }
+      }
+    );
 
     // delete event by eventId
-    app.delete("/events/:eventId", verifyJWT, verifyClubManager, async (req, res) => {
-      const eventId = req.params.eventId;     
-      const query = { _id: new ObjectId(eventId) };
-      const result = await eventsCollection.deleteOne(query);
-      res.send(result);
-    });
-   
+    app.delete(
+      "/events/:eventId",
+      verifyJWT,
+      verifyClubManager,
+      async (req, res) => {
+        const eventId = req.params.eventId;
+        const query = { _id: new ObjectId(eventId) };
+        const result = await eventsCollection.deleteOne(query);
+        res.send(result);
+      }
+    );
 
     // get all clubs
-    app.get("/clubs", async (req, res) => {
+    app.get("/clubs", verifyJWT,  async (req, res) => {
       const result = await clubsCollection.find().toArray();
       res.send(result);
     });
 
     // get all approved clubs
-    app.get("/clubs/approved", async (req, res) => {
+    app.get("/clubs/approved", verifyJWT,  async (req, res) => {
       const result = await clubsCollection
         .find({ status: "approved" })
         .toArray();
@@ -198,39 +355,49 @@ async function run() {
     });
 
     // get all members for each club
-    app.get("/memberships/:clubId", verifyJWT, verifyClubManager, async (req, res) => {
-      const clubId = req.params.clubId;
-      const result = await membershipsCollection
-        .find({ clubId })
-        .toArray();
-      res.send(result);
-    });
-
+    app.get(
+      "/memberships/:clubId",
+      verifyJWT,
+      verifyClubManager,
+      async (req, res) => {
+        const clubId = req.params.clubId;
+        const result = await membershipsCollection.find({ clubId }).toArray();
+        res.send(result);
+      }
+    );
 
     // memeberships status update
-    app.patch("/memberships/:id/expire", verifyJWT, verifyClubManager, async (req, res) => {
-      const id = req.params.id;
-      const { status } = req.body;
-      const query = { _id: new ObjectId(id) };
+    app.patch(
+      "/memberships/:id/expire",
+      verifyJWT,
+      verifyClubManager,
+      async (req, res) => {
+        const id = req.params.id;
+        const { status } = req.body;
+        const query = { _id: new ObjectId(id) };
 
-      const updateFields = {  
-        $set: {
-          status,
-          updatedAt: new Date().toISOString(),
-        },
-      };
+        const updateFields = {
+          $set: {
+            status,
+            updatedAt: new Date().toISOString(),
+          },
+        };
 
-      // for expire then membership data to deleteNone collection
-      
-      const result = await membershipsCollection.updateOne(query, updateFields);
+        // for expire then membership data to deleteNone collection
 
-      await membershipsCollection.deleteOne(query);
-      res.send(result);
-    });
+        const result = await membershipsCollection.updateOne(
+          query,
+          updateFields
+        );
+
+        await membershipsCollection.deleteOne(query);
+        res.send(result);
+      }
+    );
 
     // get single club
     app.get("/clubs/:id", async (req, res) => {
-      const id = req.params.id;     
+      const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await clubsCollection.findOne(query);
       res.send(result);
@@ -314,15 +481,15 @@ async function run() {
       res.send(result);
     });
 
-    app.post('/create-checkout-session', async (req, res) => {
-      const paymentInfo = req.body
-      console.log(paymentInfo)
+    app.post("/create-checkout-session", async (req, res) => {
+      const paymentInfo = req.body;
+      console.log(paymentInfo);
       const payment_total = Number(paymentInfo?.membershipFee) * 100;
       const session = await stripe.checkout.sessions.create({
         line_items: [
           {
             price_data: {
-              currency: 'usd',
+              currency: "usd",
               product_data: {
                 name: paymentInfo?.name,
                 description: paymentInfo?.description,
@@ -334,81 +501,85 @@ async function run() {
           },
         ],
         customer_email: paymentInfo?.member?.email,
-        mode: 'payment',
+        mode: "payment",
         metadata: {
           clubId: paymentInfo?.clubId,
           member: paymentInfo?.member.email,
         },
         success_url: `${process.env.CLIENT_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.CLIENT_DOMAIN}/clubs/${paymentInfo?.clubId}`,
-      })
-      res.send({ url: session.url })
-    })
+      });
+      res.send({ url: session.url });
+    });
 
     // payment success
-     app.post('/payment-success', async (req, res) => {
-      const { sessionId } = req.body
-      const session = await stripe.checkout.sessions.retrieve(sessionId)
+    app.post("/payment-success", async (req, res) => {
+      const { sessionId } = req.body;
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
       const club = await clubsCollection.findOne({
         _id: new ObjectId(session.metadata.clubId),
-      })
+      });
       const memberShip = await membershipsCollection.findOne({
         paymentId: session.payment_intent,
-      })
+      });
 
-      if (session.status === 'complete' && club && !memberShip) {
+      if (session.status === "complete" && club && !memberShip) {
         // save order data in db
         const memberInfo = {
           memberName: session.customer_details.name,
           clubId: session.metadata.clubId,
           transactionId: session.payment_intent,
           memberEmail: session.metadata.member,
-          status: 'active',
+          status: "active",
           joinedAt: new Date().toISOString(),
-        
-         
+
           // membershipFee: session.amount_total / 100,
           // bannerImage: club?.bannerImage,
-        }
-        const result = await membershipsCollection.insertOne(memberInfo)
-         await paymentsCollection.insertOne({
+        };
+        const result = await membershipsCollection.insertOne(memberInfo);
+        await paymentsCollection.insertOne({
           paymentId: session.payment_intent,
-          clubId: session.metadata.clubId,  
+          clubId: session.metadata.clubId,
+          club:club.name,
           memberEmail: session.metadata.member,
-          type: 'membership',
+          type: "membership",
           amount: session.amount_total / 100,
           status: session.payment_status,
           createdAt: new Date().toISOString(),
-        })
+        });
 
         return res.send({
           paymentId: session.payment_intent,
           memberId: result.insertedId,
-        })
+        });
       }
       res.send(
         res.send({
           paymentIdId: session.payment_intent,
           memberId: memberShip._id,
         })
-      )
-    })
+      );
+    });
 
     // isMember serarch by memberEmail and clubId
-    app.get("/is-member", verifyJWT,  async (req, res) => {
+    app.get("/is-member", verifyJWT, async (req, res) => {
       const memberEmail = req.query.memberEmail;
-      const clubId = req.query.clubId;  
+      const clubId = req.query.clubId;
       const query = { memberEmail, clubId };
       const result = await membershipsCollection.findOne(query);
       // res.send({ isMember: result.status, memberData: result });
-      res.send(result.status)
+      res.send(result.status);
     });
 
-
+    // total user count
+    app.get("/users/count", verifyJWT, async (req, res) => {
+      const count = await usersCollection.countDocuments();
+      console.log(count);
+    });
 
     // memberships count by clubId
     app.get("/memberships/count/:clubId", async (req, res) => {
-      const clubId = req.params.clubId; 
+      const clubId = req.params.clubId;
       const count = await membershipsCollection.countDocuments({ clubId });
       res.send({ count });
     });
