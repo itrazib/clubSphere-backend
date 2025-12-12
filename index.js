@@ -354,7 +354,7 @@ async function run() {
     });
 
     // member Clubs
-    app.get("/member/my-clubs", async (req, res) => {
+    app.get("/member/my-clubs", verifyJWT, async (req, res) => {
       const email = req.query.email;
 
       const memberships = await membershipsCollection
@@ -382,6 +382,65 @@ async function run() {
       });
 
       res.send(result);
+    });
+
+    // my events
+    app.get("/member/my-events", verifyJWT, async (req, res) => {
+      const email = req.query.email;
+
+      try {
+        // All events the member registered
+        const registrations = await eventRegistrationsCollection
+          .find({ userEmail: email })
+          .toArray();
+
+        const eventIds = registrations.map((r) => new ObjectId(r.eventId));
+
+        // Get event details
+        const events = await eventsCollection
+          .find({ _id: { $in: eventIds } })
+          .project({ title: 1, clubName: 1, date: 1 })
+          .toArray();
+
+        const result = registrations.map((reg) => {
+          const event = events.find(
+            (ev) => ev._id.toString() === reg.eventId.toString()
+          );
+
+          return {
+            _id: reg._id,
+            title: event?.title,
+            clubName: event?.clubName,
+            date: event?.date,
+            status: reg.status,
+          };
+        });
+
+        res.send(result);
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
+
+    // member payments
+    app.get("/member/payments", verifyJWT, async (req, res) => {
+      const email = req.query.email;
+
+      if (!email) {
+        return res.status(400).send({ message: "Email required" });
+      }
+
+      try {
+        const payments = await paymentsCollection
+          .find({ memberEmail: email })
+          .sort({ date: -1 }) // newest first
+          .toArray();
+
+        res.send(payments);
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Failed to load payments" });
+      }
     });
 
     // up-coming Events
