@@ -200,10 +200,10 @@ async function run() {
     );
 
     // admin payments part
-    app.get("/admin/payments", verifyJWT, async(req, res) => {
+    app.get("/admin/payments", verifyJWT, async (req, res) => {
       const result = await paymentsCollection.find().toArray();
-      res.send(result)
-    })
+      res.send(result);
+    });
 
     // admin stats
     app.get("/admin/stats", verifyJWT, verifyADMIN, async (req, res) => {
@@ -327,6 +327,69 @@ async function run() {
       }
     );
 
+    // member stats
+    app.get("/member/stats", verifyJWT, async (req, res) => {
+      const memberEmail = req.query.email; // frontend sends ?email=user@gmail.com
+
+      try {
+        // Count how many clubs this member joined
+        const clubsJoined = await membershipsCollection.countDocuments({
+          memberEmail,
+          status: "active",
+        });
+
+        // Count how many events this user registered
+        const eventsJoined = await eventRegistrationsCollection.countDocuments({
+          userEmail: memberEmail,
+          status: "registered",
+        });
+
+        res.send({
+          totalClubsJoined: clubsJoined,
+          totalEventsJoined: eventsJoined,
+        });
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
+
+    // up-coming Events
+    app.get("/member/upcoming-events", verifyJWT, async (req, res) => {
+      const email = req.query.email; // frontend: ?email=user@gmail.com
+
+      try {
+        // 1️⃣ Get clubs the member has joined
+        const joinedClubs = await membershipsCollection
+          .find({
+            memberEmail: email,
+            status: "active",
+          })
+          .project({ clubId: 1 })
+          .toArray();
+
+        const clubIds = joinedClubs.map((c) => c.clubId);
+
+        if (clubIds.length === 0) {
+          return res.send([]);
+        }
+
+        // 2️⃣ Get upcoming events from those clubs
+        const today = new Date().toISOString();
+
+        const upcomingEvents = await eventsCollection
+          .find({
+            clubId: { $in: clubIds },
+            date: { $gte: today }, // future events only
+          })
+          .sort({ date: 1 }) // earliest first
+          .toArray();
+
+        res.send(upcomingEvents);
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
+
     // delete event by eventId
     app.delete(
       "/events/:eventId",
@@ -341,13 +404,13 @@ async function run() {
     );
 
     // get all clubs
-    app.get("/clubs", verifyJWT,  async (req, res) => {
+    app.get("/clubs", verifyJWT, async (req, res) => {
       const result = await clubsCollection.find().toArray();
       res.send(result);
     });
 
     // get all approved clubs
-    app.get("/clubs/approved", verifyJWT,  async (req, res) => {
+    app.get("/clubs/approved", verifyJWT, async (req, res) => {
       const result = await clubsCollection
         .find({ status: "approved" })
         .toArray();
@@ -540,7 +603,7 @@ async function run() {
         await paymentsCollection.insertOne({
           paymentId: session.payment_intent,
           clubId: session.metadata.clubId,
-          club:club.name,
+          club: club.name,
           memberEmail: session.metadata.member,
           type: "membership",
           amount: session.amount_total / 100,
