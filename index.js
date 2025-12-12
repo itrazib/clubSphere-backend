@@ -353,6 +353,37 @@ async function run() {
       }
     });
 
+    // member Clubs
+    app.get("/member/my-clubs", async (req, res) => {
+      const email = req.query.email;
+
+      const memberships = await membershipsCollection
+        .find({ memberEmail: email, status: "active" })
+        .toArray();
+
+      const clubIds = memberships.map((m) => m.clubId);
+
+      const clubs = await clubsCollection
+        .find({ _id: { $in: clubIds.map((id) => new ObjectId(id)) } })
+        .project({ name: 1, location: 1 })
+        .toArray();
+
+      const result = memberships.map((m) => {
+        const club = clubs.find(
+          (c) => c._id.toString() === m.clubId.toString()
+        );
+        return {
+          clubId: m.clubId,
+          clubName: club?.name,
+          location: club?.location,
+          status: m.status,
+          expiryDate: m.expiryDate || null,
+        };
+      });
+
+      res.send(result);
+    });
+
     // up-coming Events
     app.get("/member/upcoming-events", verifyJWT, async (req, res) => {
       const email = req.query.email; // frontend: ?email=user@gmail.com
