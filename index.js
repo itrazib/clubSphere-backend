@@ -28,15 +28,15 @@ app.use(express.json());
 // jwt middlewares
 const verifyJWT = async (req, res, next) => {
   const token = req?.headers?.authorization?.split(" ")[1];
-  console.log(token);
+
   if (!token) return res.status(401).send({ message: "Unauthorized Access!" });
   try {
     const decoded = await admin.auth().verifyIdToken(token);
     req.tokenEmail = decoded.email;
-    console.log(decoded);
+  
     next();
   } catch (err) {
-    console.log(err);
+    
     return res.status(401).send({ message: "Unauthorized Access!", err });
   }
 };
@@ -50,7 +50,7 @@ const client = new MongoClient(process.env.MONGODB_URI, {
 });
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
 
     const db = client.db("ClubSphere");
     const usersCollection = db.collection("users");
@@ -88,7 +88,7 @@ async function run() {
       const userData = req.body;
       userData.status = "registered";
       userData.registerAt = new Date().toISOString();
-      console.log(userData);
+      // console.log(userData);
       const result = await eventRegistrationsCollection.insertOne(userData);
       res.send(result);
     });
@@ -117,9 +117,9 @@ async function run() {
       }
     );
 
-    // ===============================
-    // 🔔 ALL UPCOMING EVENTS API
-    // ===============================
+    
+    // ALL UPCOMING EVENTS API
+    
     app.get("/events/upcoming", async (req, res) => {
       try {
         // Today's date in YYYY-MM-DD
@@ -151,9 +151,6 @@ async function run() {
       const result = await clubsCollection.insertOne(clubData);
       res.send(result);
     });
-
-    // member search by member email
-    // app.get("")
 
     // create events by clubId
     app.post(
@@ -315,7 +312,7 @@ async function run() {
     });
 
     // admin analytics
-    // ===== Admin Analytics (Graph Data) =====
+    // Admin Analytics Graph Data
     app.get("/admin/analytics", verifyJWT, verifyADMIN, async (req, res) => {
       try {
         const adminEmail = req.tokenEmail
@@ -391,7 +388,7 @@ async function run() {
         try {
           const managerEmail = req.tokenEmail;
 
-          // ================= CLUB IDS =================
+          // CLUB IDS 
           const clubs = await clubsCollection
             .find({ managerEmail })
             .project({ _id: 1 })
@@ -399,7 +396,7 @@ async function run() {
 
           const clubIds = clubs.map((c) => c._id.toString());
 
-          // ================= BASIC STATS =================
+          // BASIC STATS 
           const clubsManaged = clubIds.length;
 
           const totalMembers = await membershipsCollection.countDocuments({
@@ -420,7 +417,7 @@ async function run() {
 
           const totalPayments = paymentsAgg[0]?.total || 0;
 
-          // ================= MONTHLY EVENTS GRAPH =================
+          //  MONTHLY EVENTS GRAPH 
           const monthlyEvents = await eventsCollection
             .aggregate([
               {
@@ -463,13 +460,13 @@ async function run() {
             events: item.events,
           }));
 
-          // ================= RESPONSE =================
+          // RESPONSE 
           res.send({
             clubsManaged,
             totalMembers,
             eventsCreated,
             totalPayments,
-            monthlyStats, // 🔥 GRAPH DATA
+            monthlyStats, // GRAPH DATA
           });
         } catch (error) {
           res.status(500).send({ message: "Server Error" });
@@ -493,7 +490,7 @@ async function run() {
 
           const clubIds = clubs.map((c) => c._id.toString());
 
-          // 📊 Monthly Events
+          // Monthly Events
           const monthlyEvents = await eventsCollection
             .aggregate([
               { $match: { clubId: { $in: clubIds } } },
@@ -532,7 +529,7 @@ async function run() {
             events: m.count,
           }));
 
-          // 📊 Monthly Payments
+          // Monthly Payments
           const monthlyPayments = await paymentsCollection
             .aggregate([
               { $match: { clubId: { $in: clubIds } } },
@@ -998,7 +995,7 @@ async function run() {
       res.send({ count });
     });
 
-    await client.db("admin").command({ ping: 1 });
+    // await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
     );
